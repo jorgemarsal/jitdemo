@@ -1,0 +1,79 @@
+#include <immintrin.h>
+#include <stdio.h>
+#include <time.h>
+
+
+// Most basic DynASM JIT; generates a trivial function that
+// returns a given value, and executes it.
+
+// DynASM directives.
+|.arch x64
+|.actionlist actions
+
+// This define affects "|" DynASM lines.  "Dst" must
+// resolve to a dasm_State** that points to a dasm_State*.
+#define Dst &state
+
+int main(int argc, char *argv[]) {
+  //if (argc < 2) {
+  //  fprintf(stderr, "Usage: jit2 <integer>\n");
+  //  return 1;
+  //}
+
+  dasm_State *state;
+  initjit(&state, actions);
+
+  // allocate arrays
+  double *a = (double *)malloc(2 * sizeof(double));
+  a[0] = a[1] = 1.0;
+  double *b = (double *)malloc(2 * sizeof(double));
+  b[0] = b[1] = 2.0;
+  double *c = (double *)malloc(2 * sizeof(double));
+
+  // Generate the code.  Each line appends to a buffer in
+  // "state", but the code in this buffer is not fully linked
+  // yet because labels can be referenced before they are
+  // defined.
+  //
+  
+  // Add a + b = c using SSE instructions
+
+  | mov eax, a
+  | movapd xmm0, oword [eax]
+  | mov eax, b
+  | movapd xmm1, oword [eax]
+  | addpd xmm0, xmm1
+  | mov eax, c
+  | movapd oword [eax], xmm0
+  | ret
+
+
+  // Link the code and write it to executable memory.
+  int (*fptr)() = jitcode(&state);
+
+  struct timespec tstart={0,0}, tend={0,0};
+  clock_gettime(CLOCK_MONOTONIC, &tstart);
+
+  // Call the JIT-ted function.
+  int ret;
+  for (int i = 0; i < 1000000; ++i)  ret = fptr();
+
+  clock_gettime(CLOCK_MONOTONIC, &tend);
+  printf("computation took about %.5f seconds\n",
+         ((double)tend.tv_sec + 1.0e-9*tend.tv_nsec) - 
+         ((double)tstart.tv_sec + 1.0e-9*tstart.tv_nsec));
+  
+  for (int i = 0; i < 2; ++i) {
+    printf("%d -> %f\n", i, c[i]);
+  }
+
+  // free the arrays
+  free(a);
+  free(b);
+  free(c);
+
+  // Free the machine code.
+  free_jitcode(fptr);
+
+  return ret;
+}
